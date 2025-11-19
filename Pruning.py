@@ -1,4 +1,5 @@
 import math
+from Heuristic import heuristic
 
 def Alpha_Beta_Search(current_board, max_depth=5):
     value, move = Max_Value_AB(current_board, max_depth, float('-inf'), float('inf'))
@@ -67,5 +68,3 @@ def find_lowest_empty_row(board, col):
 def copy_board(board):
     return [row[:] for row in board]
          
-def heuristic(currnet_board):           
-    pass 
