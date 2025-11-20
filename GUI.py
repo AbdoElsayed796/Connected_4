@@ -4,6 +4,85 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QSpinBox, QGroupBox, QGridLayout, QFrame, QMessageBox)
 from PyQt5.QtCore import Qt, QTimer, QPoint, QPropertyAnimation, QEasingCurve, pyqtSignal
 from PyQt5.QtGui import QPainter, QColor, QFont, QPen, QBrush, QLinearGradient
+from MiniMax import Minimax_Search
+from Pruning import Alpha_Beta_Search
+from Expectiminimax import Expectiminimax
+
+class TreeWindow(QWidget):
+    def __init__(self, root, algorithm_name=""):
+        super().__init__()
+        self.root = root
+        self.algorithm_name = algorithm_name
+        self.setWindowTitle(f"AI Search Tree - {algorithm_name}")
+        self.setGeometry(100, 100, 600, 800)
+        
+        # Apply dark theme styling
+        self.setStyleSheet("""
+            QWidget {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #0f2027, stop:0.5 #203a43, stop:1 #2c5364);
+            }
+        """)
+        
+        self.layout = QVBoxLayout()
+        self.setLayout(self.layout)
+        
+        # Add title label
+        title = QLabel(f'🌳 {algorithm_name} Search Tree')
+        title.setStyleSheet("""
+            QLabel {
+                font-size: 20px;
+                font-weight: bold;
+                color: #ffffff;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #667eea, stop:1 #764ba2);
+                border-radius: 8px;
+                padding: 12px;
+                margin: 10px;
+            }
+        """)
+        title.setAlignment(Qt.AlignCenter)
+        self.layout.addWidget(title)
+
+        # Scrollable text area
+        from PyQt5.QtWidgets import QScrollArea, QTextEdit
+        
+        self.text_widget = QTextEdit()
+        self.text_widget.setReadOnly(True)
+        self.text_widget.setStyleSheet("""
+            QTextEdit {
+                font-family: 'Courier New', monospace;
+                font-size: 13px;
+                background: rgba(0, 0, 0, 0.3);
+                color: #ffffff;
+                border: 2px solid #667eea;
+                border-radius: 8px;
+                padding: 10px;
+            }
+        """)
+        self.layout.addWidget(self.text_widget)
+        
+        self.printTree()
+
+    def printTree(self):
+        text = self.recursivePrint(self.root, 0)
+        self.text_widget.setPlainText(text)
+
+    def recursivePrint(self, node, level):
+        if node is None:
+            return ""
+        indent = "  " * level
+        if node.node_type == "expect":
+            prefix = "△ Expect"
+        elif node.node_type:  # True = max
+            prefix = "▲ Max"
+        else:  # False = min
+            prefix = "▼ Min"
+        s = f"{indent}{prefix} Value: {node.value}\n"
+        for child in getattr(node, "children", []):
+            s += self.recursivePrint(child, level + 1)
+        return s
+
 
 class GameCell(QFrame):
     """Custom widget for game board cells with animation"""
@@ -145,6 +224,9 @@ class Connect4GUI(QMainWindow):
         self.game_over = False
         self.scores = {'player': 0, 'ai': 0}
         self.last_move = None
+        self.last_tree_root = None  # Store the last generated tree
+        self.tree_window = None  # Reference to tree window
+        self.used_combinations = set()  # Track used winning combinations
         
         self.initUI()
         
@@ -234,6 +316,13 @@ class Connect4GUI(QMainWindow):
         self.reset_btn.setEnabled(False)
         self.styleButton(self.reset_btn, '#2196F3', '#1976D2')
         button_layout.addWidget(self.reset_btn)
+        
+        # NEW: Tree Visualization Button
+        self.tree_btn = QPushButton('🌳 View Search Tree')
+        self.tree_btn.clicked.connect(self.showSearchTree)
+        self.tree_btn.setEnabled(False)
+        self.styleButton(self.tree_btn, '#9C27B0', '#7B1FA2')
+        button_layout.addWidget(self.tree_btn)
         
         layout.addLayout(button_layout)
         layout.addStretch()
@@ -484,17 +573,23 @@ class Connect4GUI(QMainWindow):
         self.current_player = 1
         self.board = [[0 for _ in range(self.COLS)] for _ in range(self.ROWS)]
         self.last_move = None
-        
+        self.last_tree_root = None  # Reset tree
+        self.used_combinations = set()  # Reset used combinations
+        self.scores['player'] = 0
+        self.scores['ai'] = 0
+        self.updateScore(self.scores['player'], self.scores['ai'])
         # Update UI
         for row in self.cells:
             for cell in row:
                 cell.setValue(0)
                 cell.setLastMove(False)
+                cell.setHighlighted(False)
         
         for btn in self.col_buttons:
             btn.setEnabled(True)
         
         self.reset_btn.setEnabled(True)
+        self.tree_btn.setEnabled(False)  # Disable until AI makes a move
         self.algo_combo.setEnabled(False)
         self.depth_spin.setEnabled(False)
         
@@ -507,17 +602,24 @@ class Connect4GUI(QMainWindow):
         self.current_player = 1
         self.board = [[0 for _ in range(self.COLS)] for _ in range(self.ROWS)]
         self.last_move = None
-        
+        self.last_tree_root = None
+        self.used_combinations = set()
+        self.scores['player'] = 0
+        self.scores['ai'] = 0
+        self.updateScore(self.scores['player'], self.scores['ai'])
+
         # Reset UI
         for row in self.cells:
             for cell in row:
                 cell.setValue(0)
                 cell.setLastMove(False)
+                cell.setHighlighted(False)
         
         for btn in self.col_buttons:
             btn.setEnabled(False)
         
         self.reset_btn.setEnabled(False)
+        self.tree_btn.setEnabled(False)
         self.algo_combo.setEnabled(True)
         self.depth_spin.setEnabled(True)
         
@@ -525,7 +627,7 @@ class Connect4GUI(QMainWindow):
         self.turn_label.setText('🎯 Waiting to start...')
     
     def makeMove(self, col):
-        """Handle player move - YOU WILL CONNECT THIS TO YOUR AI CODE"""
+        """Handle player move"""
         if not self.game_started or self.game_over:
             return
         
@@ -535,7 +637,7 @@ class Connect4GUI(QMainWindow):
             self.status_label.setText('⚠️ Column is full! Choose another column.')
             return
         
-        # Place piece (this is where you'll integrate your game logic)
+        # Place piece
         self.board[row][col] = self.current_player
         self.cells[row][col].setValue(self.current_player)
         
@@ -545,33 +647,166 @@ class Connect4GUI(QMainWindow):
         self.last_move = (row, col)
         self.cells[row][col].setLastMove(True)
         
-        # Update status
-        self.status_label.setText(f'{"Player" if self.current_player == 1 else "AI"} placed at column {col + 1}')
+        # Check for new connections and update score
+        new_connections = self.checkNewConnections(row, col)
+        if new_connections:
+            self.updateScoreWithConnections(new_connections)
         
-        # TODO: CHECK FOR WIN/CONNECT-4 HERE
-        # TODO: CALL YOUR AI ALGORITHM HERE
-        # TODO: UPDATE SCORES
+        # Check for draw
+        if self.isBoardFull():
+            self.handleGameEnd()
+            return
+        
+        # Update status
+        player_name = "Player" if self.current_player == 1 else "AI"
+        self.status_label.setText(f'{player_name} placed at column {col + 1}')
         
         # Switch player
         self.current_player = 2 if self.current_player == 1 else 1
         self.updateTurnLabel()
         
-        # Simulate AI move after short delay (you'll replace this with actual AI)
+        # Simulate AI move after short delay
         if self.current_player == 2:
             QTimer.singleShot(500, self.makeAIMove)
     
+    def checkNewConnections(self, row, col):
+        """Check for new 4-in-a-row connections from the last move"""
+        player = self.board[row][col]
+        new_connections = []
+        
+        # Check all possible directions for 4-in-a-row
+        directions = [
+            (0, 1),   # horizontal
+            (1, 0),   # vertical
+            (1, 1),   # diagonal down-right
+            (1, -1)   # diagonal down-left
+        ]
+        
+        for dr, dc in directions:
+            # Find all consecutive pieces in this direction
+            consecutive = []
+            
+            # Check in positive direction
+            r, c = row, col
+            while 0 <= r < self.ROWS and 0 <= c < self.COLS and self.board[r][c] == player:
+                consecutive.append((r, c))
+                r += dr
+                c += dc
+            
+            # Check in negative direction (excluding the current piece to avoid duplication)
+            r, c = row - dr, col - dc
+            while 0 <= r < self.ROWS and 0 <= c < self.COLS and self.board[r][c] == player:
+                consecutive.insert(0, (r, c))
+                r -= dr
+                c -= dc
+            
+            # Now check for all possible 4-in-a-row sequences within this consecutive line
+            if len(consecutive) >= 4:
+                for i in range(len(consecutive) - 3):
+                    current_combo = consecutive[i:i+4]
+                    combo_id = tuple(sorted(current_combo))
+                    if combo_id not in self.used_combinations:
+                        new_connections.append(current_combo)
+                        self.used_combinations.add(combo_id)
+        
+        return new_connections
+    
+    def updateScoreWithConnections(self, connections):
+        """Update score based on new connections"""
+        for connection in connections:
+            player = self.board[connection[0][0]][connection[0][1]]
+            
+            # Highlight the connected cells temporarily
+            for row, col in connection:
+                self.cells[row][col].setHighlighted(True)
+            
+            # Update score
+            if player == 1:  # Player
+                self.scores['player'] += 1
+                self.status_label.setText(f'🎉 Player scored! +1 point (Total: {self.scores["player"]})')
+            else:  # AI
+                self.scores['ai'] += 1
+                self.status_label.setText(f'🤖 AI scored! +1 point (Total: {self.scores["ai"]})')
+            
+            # Update score display
+            self.updateScore(self.scores['player'], self.scores['ai'])
+            
+            # Remove highlight after a delay
+            QTimer.singleShot(1500, self.removeHighlights)
+    
+    def removeHighlights(self):
+        """Remove temporary highlights from cells"""
+        for row in range(self.ROWS):
+            for col in range(self.COLS):
+                self.cells[row][col].setHighlighted(False)
+    
     def makeAIMove(self):
-        """Placeholder for AI move - YOU WILL IMPLEMENT YOUR AI ALGORITHM HERE"""
+        """AI move with tree generation"""
         if not self.game_started or self.game_over:
             return
         
-        # TODO: CALL YOUR MINIMAX/ALPHA-BETA/EXPECTED MINIMAX HERE
-        # For now, just make a random valid move
-        import random
-        valid_cols = [c for c in range(self.COLS) if self.findLowestEmptyRow(c) != -1]
-        if valid_cols:
-            col = random.choice(valid_cols)
-            self.makeMove(col)
+        move, root = None, None
+        algorithm = self.algo_combo.currentText()
+        depth = self.depth_spin.value()
+        
+        try:
+            if algorithm == "Minimax":
+                move, root = Minimax_Search(self.board, depth)
+            elif algorithm == "Alpha-Beta Pruning":
+                move, root = Alpha_Beta_Search(self.board, depth)
+            else:
+                move, root = Expectiminimax(self.board, depth)
+            
+            # Store the tree root
+            self.last_tree_root = root
+            self.tree_btn.setEnabled(True)  # Enable tree button after AI move
+            
+            # Make the move
+            if move is not None:
+                self.makeMove(move)
+        except Exception as e:
+            self.status_label.setText(f'⚠️ AI Error: {str(e)}')
+    
+    def isBoardFull(self):
+        """Check if the board is completely filled"""
+        for row in range(self.ROWS):
+            for col in range(self.COLS):
+                if self.board[row][col] == 0:
+                    return False
+        return True
+    
+    def handleGameEnd(self):
+        """Handle game end when board is full"""
+        self.game_over = True
+        
+        # Disable column buttons
+        for btn in self.col_buttons:
+            btn.setEnabled(False)
+        
+        # Determine winner or tie
+        if self.scores['player'] > self.scores['ai']:
+            message = f"🎉 Game Over! Player wins {self.scores['player']}-{self.scores['ai']}!"
+        elif self.scores['ai'] > self.scores['player']:
+            message = f"🤖 Game Over! AI wins {self.scores['ai']}-{self.scores['player']}!"
+        else:
+            message = f"🤝 Game Over! It's a tie {self.scores['player']}-{self.scores['ai']}!"
+        
+        self.showGameOver(message)
+    
+    def showSearchTree(self):
+        """Display the search tree in a new window"""
+        if self.last_tree_root is None:
+            QMessageBox.warning(self, "No Tree", "No search tree available. AI must make a move first!")
+            return
+        
+        # Close previous tree window if it exists
+        if self.tree_window is not None:
+            self.tree_window.close()
+        
+        # Create and show new tree window
+        algorithm = self.algo_combo.currentText()
+        self.tree_window = TreeWindow(self.last_tree_root, algorithm)
+        self.tree_window.show()
     
     def findLowestEmptyRow(self, col):
         """Find the lowest empty row in a column"""
@@ -609,23 +844,19 @@ class Connect4GUI(QMainWindow):
             """)
     
     def getSettings(self):
-        """Get current game settings - USE THIS IN YOUR AI CODE"""
+        """Get current game settings"""
         return {
             'algorithm': self.algo_combo.currentText(),
             'depth': self.depth_spin.value()
         }
     
     def updateScore(self, player_score, ai_score):
-        """Update score display - CALL THIS FROM YOUR GAME LOGIC"""
+        """Update score display"""
         self.player_score.setText(str(player_score))
         self.ai_score.setText(str(ai_score))
     
     def showGameOver(self, message):
         """Show game over dialog"""
-        self.game_over = True
-        for btn in self.col_buttons:
-            btn.setEnabled(False)
-        
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle('Game Over')
         msg_box.setText(message)
@@ -654,7 +885,7 @@ class Connect4GUI(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
-    app.setStyle('Fusion')  # Modern look
+    app.setStyle('Fusion')
     
     window = Connect4GUI()
     window.show()
