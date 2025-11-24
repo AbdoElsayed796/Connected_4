@@ -10,6 +10,8 @@ from PyQt5.QtGui import QPainter, QColor, QFont, QPen, QBrush, QLinearGradient, 
 from MiniMax import Minimax_Search
 from Pruning import Alpha_Beta_Search
 from Expectiminimax import Expectiminimax
+from TreePrinter import TreePrinter
+
 
 
 class ZoomableGraphicsView(QGraphicsView):
@@ -20,7 +22,7 @@ class ZoomableGraphicsView(QGraphicsView):
         self.setDragMode(QGraphicsView.ScrollHandDrag)
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.AnchorUnderMouse)
-        self.zoom_factor = 1.15
+        self.zoom_factor = 1.2
         self.current_scale = 1.0
         
     def wheelEvent(self, event: QWheelEvent):
@@ -118,15 +120,13 @@ class ExpandableNodeItem(QGraphicsEllipseItem):
         self.text_item.setDefaultTextColor(QColor(255, 255, 255))
         
         # FORCE visible font size based on radius
-        if radius >= 30:
-            font_size = 12
-        elif radius >= 25:
-            font_size = 10
+        if radius >= 25:
+            font_size = 11
         elif radius >= 20:
-            font_size = 9
+            font_size = 10
         else:
-            font_size = 8
-        
+            font_size = 9
+
         font = QFont("Arial", font_size, QFont.Bold)
         self.text_item.setFont(font)
         
@@ -259,7 +259,7 @@ class TreeWindow(QWidget):
         self.root = root
         self.algorithm_name = algorithm_name
         self.setWindowTitle(f"AI Search Tree - {algorithm_name}")
-        self.setGeometry(100, 100, 1600, 1000)
+        self.setGeometry(100, 100, 1800, 1000)
         
         # Apply dark theme styling
         self.setStyleSheet("""
@@ -372,9 +372,10 @@ class TreeWindow(QWidget):
         self.edge_items = {}  # Map node pairs to their edge items
         
         # Tree layout parameters
-        self.node_radius = 35
-        self.level_height = 120
-        self.horizontal_spacing = 100
+        self.node_radius = 25
+        self.level_height = 100
+        self.horizontal_spacing = 60
+        self.min_horizontal_spacing = 70
         
         # Draw the initial tree (only root)
         self.drawTree()
@@ -383,8 +384,6 @@ class TreeWindow(QWidget):
         QTimer.singleShot(100, self.fitTreeInView)
     
     def drawTree(self):
-        """Draw the tree starting with only the root node"""
-        # Clear scene properly
         for item in self.scene.items():
             self.scene.removeItem(item)
         
@@ -394,37 +393,143 @@ class TreeWindow(QWidget):
         if self.root is None:
             return
         
-        # Calculate positions and draw visible nodes
         positions = {}
-        self.calculateLayout(self.root, 0, 400, positions, 1)  # Start at x=400 (center)
+        self.calculateLayout(self.root, 0, 2000, positions, 1)
         
         self.drawNodesAndEdges(positions)
         
-        # Set scene rect with padding
-        self.scene.setSceneRect(self.scene.itemsBoundingRect().adjusted(-50, -50, 50, 50))
+        rect = self.scene.itemsBoundingRect()
+        self.scene.setSceneRect(rect.adjusted(-300, -100, 300, 100))
+
+    def buildTreeText(self, node, prefix="", is_last=True, is_root=True):
+        """Build a text representation of the tree"""
+        if node is None:
+            return ""
+        
+        result = ""
+        
+        # Determine node symbol based on type
+        if is_root:
+            node_symbol = "🌳"
+        elif hasattr(node, 'node_type'):
+            if node.node_type == "expect":
+                node_symbol = "△"
+            elif node.node_type == "max" or node.node_type == True:
+                node_symbol = "▲"
+            else:
+                node_symbol = "▼"
+        else:
+            node_symbol = "●"
+        
+        # Format node value
+        if node.value is None:
+            value_str = "?"
+        elif node.value == "PRUNED":
+            value_str = "✂ PRUNED"
+        else:
+            try:
+                value_str = f"{float(node.value):.2f}"
+            except:
+                value_str = str(node.value)
+        
+        # Build node information
+        node_info = f"{node_symbol} Value: {value_str}"
+        
+        # Add additional attributes
+        if hasattr(node, 'col') and node.col is not None:
+            node_info += f" | Col: {node.col}"
+        if hasattr(node, 'depth'):
+            node_info += f" | Depth: {node.depth}"
+        if hasattr(node, 'node_type') and node.node_type:
+            node_info += f" | Type: {node.node_type}"
+        
+        # Determine the connector
+        if is_root:
+            connector = ""
+            current_line = node_info + "\n"
+        else:
+            connector = "└── " if is_last else "├── "
+            current_line = prefix + connector + node_info + "\n"
+        
+        result += current_line
+        
+        # Process children
+        if hasattr(node, 'children') and node.children:
+            # Update prefix for children
+            if is_root:
+                new_prefix = ""
+            else:
+                extension = "    " if is_last else "│   "
+                new_prefix = prefix + extension
+            
+            # Add all children
+            for i, child in enumerate(node.children):
+                is_last_child = (i == len(node.children) - 1)
+                result += self.buildTreeText(child, new_prefix, is_last_child, False)
+        
+        return result
+    
+    def calculateTreeStats(self, root):
+        """Calculate tree statistics"""
+        stats = {
+            'total_nodes': 0,
+            'max_depth': 0,
+            'leaf_nodes': 0,
+            'branch_nodes': 0,
+            'pruned_nodes': 0,
+            'total_children': 0,
+            'branch_count': 0
+        }
+        
+        def traverse(node, depth):
+            if node is None:
+                return
+            
+            stats['total_nodes'] += 1
+            stats['max_depth'] = max(stats['max_depth'], depth)
+            
+            # Check if pruned
+            if node.value == "PRUNED":
+                stats['pruned_nodes'] += 1
+            
+            # Check if leaf or branch
+            if hasattr(node, 'children') and node.children:
+                stats['branch_nodes'] += 1
+                stats['total_children'] += len(node.children)
+                stats['branch_count'] += 1
+                
+                for child in node.children:
+                    traverse(child, depth + 1)
+            else:
+                stats['leaf_nodes'] += 1
+        
+        traverse(root, 0)
+        
+        # Calculate average branching factor
+        if stats['branch_count'] > 0:
+            stats['avg_branching'] = stats['total_children'] / stats['branch_count']
+        else:
+            stats['avg_branching'] = 0
+        
+        return stats
     
     def calculateLayout(self, node, depth, x, positions, direction):
-        """Calculate positions for visible nodes only"""
         if node is None:
             return x
         
-        # Store current node position
         y = depth * self.level_height + 50
         positions[node] = (x, y)
         
-        # Process children only if node is expanded
         if (hasattr(node, 'children') and node.children and 
             node in self.expanded_nodes):
             
             num_children = len(node.children)
-            total_width = self.horizontal_spacing * num_children
+            spacing = max(self.min_horizontal_spacing / (1 + depth * 0.3), 50)
+            total_width = spacing * (num_children - 1)
+            start_x = x - total_width / 2
             
-            # Start position for children
-            start_x = x - total_width / 2 + self.horizontal_spacing / 2
-            
-            # Position each child
             for i, child in enumerate(node.children):
-                child_x = start_x + i * self.horizontal_spacing
+                child_x = start_x + i * spacing
                 self.calculateLayout(child, depth + 1, child_x, positions, direction)
         
         return x
@@ -507,7 +612,7 @@ class TreeWindow(QWidget):
         self.graphics_view.fitInView(self.scene.sceneRect(), Qt.KeepAspectRatio)
     
     def expandAllNodes(self):
-        """Expand all nodes in the tree"""
+        """Expand all nodes in the tree and show in Node Details panel"""
         def addAllNodes(node):
             if node is None:
                 return
@@ -516,9 +621,31 @@ class TreeWindow(QWidget):
                 for child in node.children:
                     addAllNodes(child)
         
+        # Expand all nodes
         addAllNodes(self.root)
         self.drawTree()
         self.graphics_view.fitInView(self.scene.sceneRect(), Qt.KeepAspectRatio)
+        
+        # Build and display full tree text in Node Details panel
+        tree_text = "="*60 + "\n"
+        tree_text += "           FULL TREE STRUCTURE\n"
+        tree_text += "="*60 + "\n\n"
+        tree_text += self.buildTreeText(self.root)
+        tree_text += "\n" + "="*60 + "\n"
+        
+        # Calculate statistics
+        stats = self.calculateTreeStats(self.root)
+        tree_text += "             TREE STATISTICS\n"
+        tree_text += "="*60 + "\n"
+        tree_text += f"Total Nodes:        {stats['total_nodes']}\n"
+        tree_text += f"Max Depth:          {stats['max_depth']}\n"
+        tree_text += f"Leaf Nodes:         {stats['leaf_nodes']}\n"
+        tree_text += f"Branch Nodes:       {stats['branch_nodes']}\n"
+        tree_text += f"Pruned Nodes:       {stats['pruned_nodes']}\n"
+        tree_text += f"Average Branching:  {stats['avg_branching']:.2f}\n"
+        tree_text += "="*60 + "\n"
+        
+        self.details_widget.setPlainText(tree_text)
     
     def collapseAllNodes(self):
         """Collapse all nodes except root"""
@@ -599,10 +726,13 @@ class TreeWindow(QWidget):
         self.details_widget.setPlainText(details)
     
     def fitTreeInView(self):
-        """Fit the entire tree in the view"""
-        self.graphics_view.fitInView(self.scene.sceneRect(), Qt.KeepAspectRatio)
-        self.graphics_view.scale(0.9, 0.9)
-        self.graphics_view.current_scale = 0.9
+        if self.scene.items():
+            rect = self.scene.sceneRect()
+            self.graphics_view.setSceneRect(rect)
+            self.graphics_view.fitInView(rect, Qt.KeepAspectRatio)
+            self.graphics_view.resetTransform()
+            self.graphics_view.fitInView(rect, Qt.KeepAspectRatio)
+            self.graphics_view.current_scale = 1.0
 
     def getTreeDepth(self, node):
         """Calculate the depth of the tree"""
@@ -1285,7 +1415,7 @@ class Connect4GUI(QMainWindow):
             self.last_tree_root = root
             self.tree_btn.setEnabled(True)
             
-            # Update statistics display
+            # Update statistics display (NO TREE PRINTING HERE)
             self.updateAIStats(nodes_expanded, elapsed_time)
             
             if move is not None:
@@ -1323,10 +1453,23 @@ class Connect4GUI(QMainWindow):
             QMessageBox.warning(self, "No Tree", "No search tree available. AI must make a move first!")
             return
         
+        # Print tree to terminal and file ONLY when button is clicked
+        algorithm = self.algo_combo.currentText()
+        print("\n" + "="*80)
+        print(f"🌳 VIEWING SEARCH TREE - {algorithm}")
+        print("="*80)
+        
+        tree_printer = TreePrinter(algorithm)
+        tree_printer.print_tree(self.last_tree_root)
+        
+        # Also print compact version
+        print("\n📋 COMPACT VIEW (First 4 Levels):")
+        tree_printer.print_compact_tree(self.last_tree_root, max_depth=4)
+        
+        # Now show the GUI window
         if self.tree_window is not None:
             self.tree_window.close()
         
-        algorithm = self.algo_combo.currentText()
         self.tree_window = TreeWindow(self.last_tree_root, algorithm)
         self.tree_window.show()
     
