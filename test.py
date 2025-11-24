@@ -95,7 +95,7 @@ class TreeWindow(QWidget):
         title = QLabel(f'🌳 {algorithm_name} Search Tree')
         title.setStyleSheet("""
             QLabel {
-                font-size: 20px;
+                font-size: 28px;
                 font-weight: bold;
                 color: #ffffff;
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,

@@ -44,6 +44,7 @@ class ZoomableGraphicsView(QGraphicsView):
 
 class ExpandableNodeItem(QGraphicsEllipseItem):
     """A clickable circular node that can expand/collapse its children"""
+    
     def __init__(self, node, x, y, radius, parent_widget):
         super().__init__(-radius, -radius, radius * 2, radius * 2)
         self.node = node
@@ -62,81 +63,195 @@ class ExpandableNodeItem(QGraphicsEllipseItem):
         if hasattr(node, 'node_type'):
             if node.node_type == "expect":
                 color = QColor("#FFA726")  # Orange
-                self.icon = "△"
-            elif node.node_type:  # Max node
+            elif node.node_type == "max" or node.node_type == True:
                 color = QColor("#66BB6A")  # Green
-                self.icon = "▲"
-            else:  # Min node
+            else:
                 color = QColor("#EF5350")  # Red
-                self.icon = "▼"
         else:
             color = QColor("#42A5F5")  # Blue
-            self.icon = "●"
         
         # Set appearance
         self.setBrush(QBrush(color))
-        border_width = max(1, int(2 * (radius / 40)))
+        border_width = max(2, int(3 * (radius / 35)))
         self.setPen(QPen(QColor("#ffffff"), border_width))
         self.default_color = color
         
-        # Add text label
+        # Tooltip with full information
+        tooltip = f"Value: {node.value}"
+        if hasattr(node, 'node_type'):
+            tooltip += f"\nType: {node.node_type}"
+        if hasattr(node, 'col') and node.col is not None:
+            tooltip += f"\nColumn: {node.col}"
+        if hasattr(node, 'depth'):
+            tooltip += f"\nDepth: {node.depth}"
+        self.setToolTip(tooltip)
+        
+        # CRITICAL: Add text label with guaranteed visibility
         self.text_item = QGraphicsTextItem(self)
-        self.updateText()
         
-        # Center the text
-        text_rect = self.text_item.boundingRect()
-        self.text_item.setPos(-text_rect.width() / 2, -text_rect.height() / 2)
-    
-    def updateText(self):
-        """Update the node text with expand/collapse indicator"""
-        if hasattr(self.node, 'children') and self.node.children:
-            is_expanded = self.node in self.parent_widget.expanded_nodes
-            indicator = "-" if is_expanded else "+"
-            text = f"{self.icon}\n{self.node.value}\n{indicator}"
+        # Get value as string
+        if node.value is None:
+            display_text = "?"
+        elif node.value == "PRUNED":
+            display_text = "X"
         else:
-            text = f"{self.icon}\n{self.node.value}"
+            value_str = str(node.value)
+            # Shorten if needed
+            if len(value_str) > 6:
+                try:
+                    num_val = float(node.value)
+                    if abs(num_val) >= 10000:
+                        display_text = f"{int(num_val/1000)}K"
+                    elif abs(num_val) >= 1000:
+                        display_text = str(int(num_val))
+                    else:
+                        display_text = value_str[:6]
+                except:
+                    display_text = value_str[:6]
+            else:
+                display_text = value_str
         
-        self.text_item.setPlainText(text)
-        self.text_item.setDefaultTextColor(QColor("#ffffff"))
-        font_size = max(6, int(10 * (self.radius / 40)))
+        # Set the text
+        self.text_item.setPlainText(display_text)
+        
+        # FORCE white color
+        self.text_item.setDefaultTextColor(QColor(255, 255, 255))
+        
+        # FORCE visible font size based on radius
+        if radius >= 30:
+            font_size = 12
+        elif radius >= 25:
+            font_size = 10
+        elif radius >= 20:
+            font_size = 9
+        else:
+            font_size = 8
+        
         font = QFont("Arial", font_size, QFont.Bold)
         self.text_item.setFont(font)
         
-        # Re-center the text
+        # FORCE text to be visible and on top
+        self.text_item.setZValue(10)
+        self.text_item.setVisible(True)
+        
+        # Center the text
         text_rect = self.text_item.boundingRect()
-        self.text_item.setPos(-text_rect.width() / 2, -text_rect.height() / 2)
+        x_pos = -text_rect.width() / 2
+        y_pos = -text_rect.height() / 2
+        self.text_item.setPos(x_pos, y_pos)
+    
+    def updateText(self):
+        """Update the node text"""
+        try:
+            if self.scene() is None:
+                return
+            
+            # Get value text
+            if self.node.value is None:
+                display_text = "?"
+            elif self.node.value == "PRUNED":
+                display_text = "X"
+            else:
+                value_str = str(self.node.value)
+                if len(value_str) > 6:
+                    try:
+                        num_val = float(self.node.value)
+                        if abs(num_val) >= 10000:
+                            display_text = f"{int(num_val/1000)}K"
+                        elif abs(num_val) >= 1000:
+                            display_text = str(int(num_val))
+                        else:
+                            display_text = value_str[:6]
+                    except:
+                        display_text = value_str[:6]
+                else:
+                    display_text = value_str
+            
+            # Add expand/collapse indicator
+            if hasattr(self.node, 'children') and self.node.children:
+                is_expanded = self.node in self.parent_widget.expanded_nodes
+                indicator = "-" if is_expanded else "+"
+                display_text = f"{display_text}\n{indicator}"
+            
+            self.text_item.setPlainText(display_text)
+            self.text_item.setDefaultTextColor(QColor(255, 255, 255))
+            
+            # Set font size
+            if self.radius >= 30:
+                font_size = 12
+            elif self.radius >= 25:
+                font_size = 10
+            elif self.radius >= 20:
+                font_size = 9
+            else:
+                font_size = 8
+            
+            font = QFont("Arial", font_size, QFont.Bold)
+            self.text_item.setFont(font)
+            
+            # Ensure visibility
+            self.text_item.setZValue(10)
+            self.text_item.setVisible(True)
+            
+            # Re-center
+            text_rect = self.text_item.boundingRect()
+            self.text_item.setPos(-text_rect.width() / 2, -text_rect.height() / 2)
+            
+        except RuntimeError:
+            pass
+        except Exception as e:
+            print(f"Error in updateText: {e}")
     
     def mousePressEvent(self, event):
-        """Handle click event - toggle expansion and show details"""
+        """Handle click event"""
         if event.button() == Qt.LeftButton:
-            # Show node details
-            self.parent_widget.displayNodeDetails(self.node)
+            if self.scene() is None:
+                return
             
-            # Toggle expansion if node has children
-            if hasattr(self.node, 'children') and self.node.children:
-                self.parent_widget.toggleNodeExpansion(self.node)
-            
-            # Visual feedback
-            self.setBrush(QBrush(QColor("#FFD700")))
-            
-            # Update text to show new expansion state
-            self.updateText()
+            try:
+                # Show node details
+                self.parent_widget.displayNodeDetails(self.node)
+                
+                # Toggle expansion if node has children
+                if hasattr(self.node, 'children') and self.node.children:
+                    self.parent_widget.toggleNodeExpansion(self.node)
+                
+                # Visual feedback
+                self.setBrush(QBrush(QColor("#FFD700")))
+                
+                # Update text
+                self.updateText()
+            except RuntimeError:
+                return
+            except Exception as e:
+                print(f"Error in mousePressEvent: {e}")
         
-        super().mousePressEvent(event)
+        try:
+            super().mousePressEvent(event)
+        except RuntimeError:
+            pass
     
     def hoverEnterEvent(self, event):
         """Handle hover enter"""
-        border_width = max(2, int(3 * (self.radius / 40)))
-        self.setPen(QPen(QColor("#FFD700"), border_width))
-        super().hoverEnterEvent(event)
+        try:
+            if self.scene() is not None:
+                border_width = max(3, int(4 * (self.radius / 35)))
+                self.setPen(QPen(QColor("#FFD700"), border_width))
+            super().hoverEnterEvent(event)
+        except RuntimeError:
+            pass
     
     def hoverLeaveEvent(self, event):
         """Handle hover leave"""
-        if not self.isSelected():
-            border_width = max(1, int(2 * (self.radius / 40)))
-            self.setPen(QPen(QColor("#ffffff"), border_width))
-            self.setBrush(QBrush(self.default_color))
-        super().hoverLeaveEvent(event)
+        try:
+            if self.scene() is not None and not self.isSelected():
+                border_width = max(2, int(3 * (self.radius / 35)))
+                self.setPen(QPen(QColor("#ffffff"), border_width))
+                self.setBrush(QBrush(self.default_color))
+            super().hoverLeaveEvent(event)
+        except RuntimeError:
+            pass
+
 
 class TreeWindow(QWidget):
     def __init__(self, root, algorithm_name=""):
@@ -144,7 +259,7 @@ class TreeWindow(QWidget):
         self.root = root
         self.algorithm_name = algorithm_name
         self.setWindowTitle(f"AI Search Tree - {algorithm_name}")
-        self.setGeometry(100, 100, 1200, 800)
+        self.setGeometry(100, 100, 1600, 1000)
         
         # Apply dark theme styling
         self.setStyleSheet("""
@@ -257,9 +372,9 @@ class TreeWindow(QWidget):
         self.edge_items = {}  # Map node pairs to their edge items
         
         # Tree layout parameters
-        self.node_radius = 20
-        self.level_height = 80
-        self.horizontal_spacing = 60
+        self.node_radius = 35
+        self.level_height = 120
+        self.horizontal_spacing = 100
         
         # Draw the initial tree (only root)
         self.drawTree()
@@ -269,7 +384,10 @@ class TreeWindow(QWidget):
     
     def drawTree(self):
         """Draw the tree starting with only the root node"""
-        self.scene.clear()
+        # Clear scene properly
+        for item in self.scene.items():
+            self.scene.removeItem(item)
+        
         self.node_items.clear()
         self.edge_items.clear()
         
@@ -505,7 +623,7 @@ class GameCell(QFrame):
         self.value = 0
         self.is_highlighted = False
         self.is_last_move = False
-        self.setFixedSize(80, 80)
+        self.setFixedSize(120, 120)
         self.setFrameStyle(QFrame.Box)
         
     def setValue(self, value):
@@ -538,7 +656,7 @@ class GameCell(QFrame):
         if self.value != 0:
             center_x = self.width() // 2
             center_y = self.height() // 2
-            radius = 30
+            radius = 50
             
             # Create gradient for piece
             piece_gradient = QLinearGradient(center_x - radius, center_y - radius, 
@@ -575,7 +693,7 @@ class GameCell(QFrame):
             # Draw empty slot
             center_x = self.width() // 2
             center_y = self.height() // 2
-            radius = 30
+            radius = 50
             
             painter.setBrush(QColor(10, 20, 40))
             painter.setPen(QPen(QColor(50, 80, 130), 2))
@@ -598,7 +716,7 @@ class ColumnButton(QPushButton):
     def __init__(self, col):
         super().__init__()
         self.col = col
-        self.setFixedSize(80, 40)
+        self.setFixedSize(120, 60)
         self.setCursor(Qt.PointingHandCursor)
         self.setStyleSheet("""
             QPushButton {
@@ -607,7 +725,7 @@ class ColumnButton(QPushButton):
                 border: 2px solid #1e4d8b;
                 border-radius: 8px;
                 color: white;
-                font-size: 20px;
+                font-size: 28px;
                 font-weight: bold;
             }
             QPushButton:hover {
@@ -642,7 +760,7 @@ class Connect4GUI(QMainWindow):
         
     def initUI(self):
         self.setWindowTitle('Connect 4 - AI Game')
-        self.setFixedSize(1000, 750)
+        self.setFixedSize(1500, 1300)
         self.setStyleSheet("""
             QMainWindow {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
@@ -693,7 +811,7 @@ class Connect4GUI(QMainWindow):
         self.turn_label = QLabel('🎯 Player\'s Turn')
         self.turn_label.setStyleSheet("""
             QLabel {
-                font-size: 18px;
+                font-size: 24px;
                 font-weight: bold;
                 color: white;
                 background: rgba(255, 193, 7, 0.2);
@@ -704,6 +822,21 @@ class Connect4GUI(QMainWindow):
         """)
         self.turn_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.turn_label)
+
+        self.stats_label = QLabel('📊 AI Statistics\n\nNodes: -\nTime: -')
+        self.stats_label.setStyleSheet("""
+            QLabel {
+                font-size: 18px;
+                font-weight: bold;
+                color: white;
+                background: rgba(102, 126, 234, 0.2);
+                border: 2px solid #667eea;
+                border-radius: 8px;
+                padding: 12px;
+            }
+        """)
+        self.stats_label.setAlignment(Qt.AlignLeft)
+        layout.addWidget(self.stats_label)
         
         button_layout = QVBoxLayout()
         button_layout.setSpacing(10)
@@ -734,7 +867,7 @@ class Connect4GUI(QMainWindow):
         group = QGroupBox('⚙️ Game Settings')
         group.setStyleSheet("""
             QGroupBox {
-                font-size: 16px;
+                font-size: 20px;
                 font-weight: bold;
                 color: white;
                 border: 2px solid #667eea;
@@ -755,7 +888,7 @@ class Connect4GUI(QMainWindow):
         
         algo_layout = QVBoxLayout()
         algo_label = QLabel('Algorithm:')
-        algo_label.setStyleSheet('color: white; font-size: 14px;')
+        algo_label.setStyleSheet('color: white; font-size: 18px;')
         self.algo_combo = QComboBox()
         self.algo_combo.addItems(['Minimax', 'Alpha-Beta Pruning', 'Expected Minimax'])
         self.algo_combo.setCurrentIndex(1)
@@ -766,7 +899,7 @@ class Connect4GUI(QMainWindow):
         
         depth_layout = QVBoxLayout()
         depth_label = QLabel('Search Depth (K):')
-        depth_label.setStyleSheet('color: white; font-size: 14px;')
+        depth_label.setStyleSheet('color: white; font-size: 18px;')
         self.depth_spin = QSpinBox()
         self.depth_spin.setRange(1, 10)
         self.depth_spin.setValue(4)
@@ -782,7 +915,7 @@ class Connect4GUI(QMainWindow):
         group = QGroupBox('🏆 Score Board')
         group.setStyleSheet("""
             QGroupBox {
-                font-size: 16px;
+                font-size: 20px;
                 font-weight: bold;
                 color: white;
                 border: 2px solid #764ba2;
@@ -803,14 +936,14 @@ class Connect4GUI(QMainWindow):
         
         player_layout = QHBoxLayout()
         player_icon = QLabel('👤')
-        player_icon.setStyleSheet('font-size: 24px;')
+        player_icon.setStyleSheet('font-size: 36px;')
         player_text = QLabel('Player:')
-        player_text.setStyleSheet('color: white; font-size: 14px;')
+        player_text.setStyleSheet('color: white; font-size: 20px;')
         self.player_score = QLabel('0')
         self.player_score.setStyleSheet("""
             QLabel {
                 color: #FFC107;
-                font-size: 24px;
+                font-size: 36px;
                 font-weight: bold;
             }
         """)
@@ -822,14 +955,14 @@ class Connect4GUI(QMainWindow):
         
         ai_layout = QHBoxLayout()
         ai_icon = QLabel('🤖')
-        ai_icon.setStyleSheet('font-size: 24px;')
+        ai_icon.setStyleSheet('font-size: 36px;')
         ai_text = QLabel('AI:')
-        ai_text.setStyleSheet('color: white; font-size: 14px;')
+        ai_text.setStyleSheet('color: white; font-size: 20px;')
         self.ai_score = QLabel('0')
         self.ai_score.setStyleSheet("""
             QLabel {
                 color: #F44336;
-                font-size: 24px;
+                font-size: 36px;
                 font-weight: bold;
             }
         """)
@@ -850,7 +983,7 @@ class Connect4GUI(QMainWindow):
         self.status_label = QLabel('Press "Start New Game" to begin!')
         self.status_label.setStyleSheet("""
             QLabel {
-                font-size: 18px;
+                font-size: 24px;
                 color: white;
                 background: rgba(255, 255, 255, 0.1);
                 border-radius: 8px;
@@ -899,14 +1032,14 @@ class Connect4GUI(QMainWindow):
         return panel
     
     def styleButton(self, btn, color, hover_color):
-        btn.setFixedHeight(45)
+        btn.setFixedHeight(60)
         btn.setStyleSheet(f"""
             QPushButton {{
                 background: {color};
                 color: white;
                 border: none;
                 border-radius: 8px;
-                font-size: 16px;
+                font-size: 20px;
                 font-weight: bold;
                 padding: 10px;
             }}
@@ -930,8 +1063,8 @@ class Connect4GUI(QMainWindow):
                 color: white;
                 border: 2px solid #667eea;
                 border-radius: 5px;
-                padding: 8px;
-                font-size: 13px;
+                padding: 12px;
+                font-size: 18px;
             }
             QComboBox:hover {
                 border: 2px solid #764ba2;
@@ -946,6 +1079,22 @@ class Connect4GUI(QMainWindow):
             }
         """)
     
+    def format_number(self, num):
+        """Format large numbers with K, M abbreviations"""
+        if num >= 1_000_000:
+            return f"{num/1_000_000:.2f}M"
+        elif num >= 1_000:
+            return f"{num/1_000:.2f}K"
+        else:
+            return f"{num:,}"
+
+    def updateAIStats(self, nodes_expanded, elapsed_time):
+        """Update AI statistics display"""
+        stats_text = f"📊 AI Statistics\n\n"
+        stats_text += f"Nodes: {self.format_number(nodes_expanded)}\n"
+        stats_text += f"Time: {elapsed_time:.4f}s"
+        self.stats_label.setText(stats_text)
+    
     def styleSpinBox(self, spin):
         spin.setStyleSheet("""
             QSpinBox {
@@ -953,8 +1102,8 @@ class Connect4GUI(QMainWindow):
                 color: white;
                 border: 2px solid #667eea;
                 border-radius: 5px;
-                padding: 8px;
-                font-size: 13px;
+                padding: 12px;
+                font-size: 18px;
             }
             QSpinBox:hover {
                 border: 2px solid #764ba2;
@@ -972,6 +1121,7 @@ class Connect4GUI(QMainWindow):
         self.scores['player'] = 0
         self.scores['ai'] = 0
         self.updateScore(self.scores['player'], self.scores['ai'])
+        self.stats_label.setText('📊 AI Statistics\n\nNodes: -\nTime: -')
         
         for row in self.cells:
             for cell in row:
@@ -984,8 +1134,6 @@ class Connect4GUI(QMainWindow):
         
         self.reset_btn.setEnabled(True)
         self.tree_btn.setEnabled(False)
-        self.algo_combo.setEnabled(False)
-        self.depth_spin.setEnabled(False)
         
         self.status_label.setText('🎮 Game Started! Make your move!')
         self.updateTurnLabel()
@@ -1001,6 +1149,7 @@ class Connect4GUI(QMainWindow):
         self.scores['player'] = 0
         self.scores['ai'] = 0
         self.updateScore(self.scores['player'], self.scores['ai'])
+        self.stats_label.setText('📊 AI Statistics\n\nNodes: -\nTime: -')
 
         for row in self.cells:
             for cell in row:
@@ -1121,20 +1270,23 @@ class Connect4GUI(QMainWindow):
         if not self.game_started or self.game_over:
             return
         
-        move, root = None, None
+        move, root, nodes_expanded, elapsed_time = None, None, 0, 0.0
         algorithm = self.algo_combo.currentText()
         depth = self.depth_spin.value()
         
         try:
             if algorithm == "Minimax":
-                move, root = Minimax_Search(self.board, depth)
+                move, root, nodes_expanded, elapsed_time = Minimax_Search(self.board, depth)
             elif algorithm == "Alpha-Beta Pruning":
-                move, root = Alpha_Beta_Search(self.board, depth)
+                move, root, nodes_expanded, elapsed_time = Alpha_Beta_Search(self.board, depth)
             else:
-                move, root = Expectiminimax(self.board, depth)
+                move, root, nodes_expanded, elapsed_time = Expectiminimax(self.board, depth)
             
             self.last_tree_root = root
             self.tree_btn.setEnabled(True)
+            
+            # Update statistics display
+            self.updateAIStats(nodes_expanded, elapsed_time)
             
             if move is not None:
                 self.makeMove(move)
@@ -1190,7 +1342,7 @@ class Connect4GUI(QMainWindow):
             self.turn_label.setText('🎯 Player\'s Turn')
             self.turn_label.setStyleSheet("""
                 QLabel {
-                    font-size: 18px;
+                    font-size: 24px;
                     font-weight: bold;
                     color: white;
                     background: rgba(255, 193, 7, 0.2);
@@ -1203,7 +1355,7 @@ class Connect4GUI(QMainWindow):
             self.turn_label.setText('🤖 AI is thinking...')
             self.turn_label.setStyleSheet("""
                 QLabel {
-                    font-size: 18px;
+                    font-size: 24px;
                     font-weight: bold;
                     color: white;
                     background: rgba(244, 67, 54, 0.2);

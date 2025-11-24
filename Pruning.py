@@ -1,13 +1,22 @@
 import math
+import time
 from Heuristic import heuristic
 from TreeNode import TreeNode
 
 def Alpha_Beta_Search(current_board, max_depth=5):
+    start_time = time.time()
+    nodes_expanded = [0]
+    
     root = TreeNode(col=None, depth=0, node_type="max")
-    value, move = Max_Value_AB(current_board, max_depth, float('-inf'), float('inf') , root)
-    return move , root
+    value, move = Max_Value_AB(current_board, max_depth, float('-inf'), float('inf'), root, nodes_expanded)
+    
+    elapsed_time = time.time() - start_time
+    
+    return move, root, nodes_expanded[0], elapsed_time
 
-def Max_Value_AB(current_board, max_depth, alpha, beta , node):
+def Max_Value_AB(current_board, max_depth, alpha, beta, node, nodes_expanded):
+    nodes_expanded[0] += 1
+    
     if max_depth == 0:
         v = heuristic(current_board)
         node.set_value(v)
@@ -22,10 +31,10 @@ def Max_Value_AB(current_board, max_depth, alpha, beta , node):
             new_board = copy_board(current_board)
             new_board[row][col] = 2 
             
-            child = TreeNode(col=col, depth=node.depth + 1, node_type="minA")
+            child = TreeNode(col=col, depth=node.depth + 1, node_type="min")
             node.add_child(child)
 
-            v2, _ = Min_Value_AB(new_board, max_depth - 1, alpha, beta, child)
+            v2, _ = Min_Value_AB(new_board, max_depth - 1, alpha, beta, child, nodes_expanded)
             
             if v2 > value:
                 value = v2
@@ -45,7 +54,9 @@ def Max_Value_AB(current_board, max_depth, alpha, beta , node):
     node.set_value(value)
     return value, best_move
 
-def Min_Value_AB(current_board, max_depth, alpha, beta , node):
+def Min_Value_AB(current_board, max_depth, alpha, beta, node, nodes_expanded):
+    nodes_expanded[0] += 1
+    
     if max_depth == 0:
         v = heuristic(current_board)
         node.set_value(v)
@@ -62,7 +73,7 @@ def Min_Value_AB(current_board, max_depth, alpha, beta , node):
             
             child = TreeNode(col=col, depth=node.depth + 1, node_type="max")
             node.add_child(child)
-            v2, _ = Max_Value_AB(new_board, max_depth - 1, alpha, beta , child)
+            v2, _ = Max_Value_AB(new_board, max_depth - 1, alpha, beta, child, nodes_expanded)
             
             if v2 < value:
                 value = v2
@@ -84,7 +95,6 @@ def Min_Value_AB(current_board, max_depth, alpha, beta , node):
 
 
 def find_lowest_empty_row(board, col):
-
     for row in range(5, -1, -1):  
         if board[row][col] == 0:
             return row
@@ -92,4 +102,3 @@ def find_lowest_empty_row(board, col):
 
 def copy_board(board):
     return [row[:] for row in board]
-         

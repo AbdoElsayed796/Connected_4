@@ -1,15 +1,24 @@
+import time
 from TreeNode import TreeNode
 from Heuristic import heuristic
 
 def Expectiminimax(current_board, max_depth=5):
     """AI is player 2 (maximizing player)"""
+    start_time = time.time()
+    nodes_expanded = [0]
+    
     root = TreeNode(col=None, depth=0, node_type="max")
-    value, move = Max_Value(current_board, max_depth, root)
-    return move, root  # return root to inspect tree
+    value, move = Max_Value(current_board, max_depth, root, nodes_expanded)
+    
+    elapsed_time = time.time() - start_time
+    
+    return move, root, nodes_expanded[0], elapsed_time
 
 
-def Max_Value(current_board, max_depth, node):
+def Max_Value(current_board, max_depth, node, nodes_expanded):
     """Player 2 (AI) maximizes"""
+    nodes_expanded[0] += 1
+    
     if is_full(current_board) or max_depth <= 0:
         v = heuristic(current_board)
         node.set_value(v)
@@ -21,10 +30,10 @@ def Max_Value(current_board, max_depth, node):
     for col in range(7):
         row = find_lowest_empty_row(current_board, col)
         if row != -1:
-            child = TreeNode(col=col, depth=node.depth + 1, node_type="expect")
+            child = TreeNode(col=col, depth= node.depth + 1, node_type="expect")
             node.add_child(child)
 
-            v2 = Expected_Value(current_board, max_depth - 1, 2, col, child)
+            v2 = Expected_Value(current_board, max_depth - 1, 2, col, child, nodes_expanded)
             
             if v2 > value:
                 value = v2
@@ -34,8 +43,10 @@ def Max_Value(current_board, max_depth, node):
     return value, best_move
 
 
-def Min_Value(current_board, max_depth, node):
+def Min_Value(current_board, max_depth, node, nodes_expanded):
     """Player 1 (opponent) minimizes"""
+    nodes_expanded[0] += 1
+    
     if is_full(current_board) or max_depth <= 0:
         v = heuristic(current_board)
         node.set_value(v)
@@ -50,7 +61,7 @@ def Min_Value(current_board, max_depth, node):
             child = TreeNode(col=col, depth=node.depth + 1, node_type="expect")
             node.add_child(child)
 
-            v2 = Expected_Value(current_board, max_depth - 1, 1, col, child)
+            v2 = Expected_Value(current_board, max_depth - 1, 1, col, child, nodes_expanded)
             
             if v2 < value:
                 value = v2
@@ -60,8 +71,10 @@ def Min_Value(current_board, max_depth, node):
     return value, best_move
 
 
-def Expected_Value(current_board, max_depth, player, col, node):
+def Expected_Value(current_board, max_depth, player, col, node, nodes_expanded):
     """Calculate expected value after a stochastic move, constructing 'expect' nodes"""
+    nodes_expanded[0] += 1
+    
     row = find_lowest_empty_row(current_board, col)
     if row == -1:
         v = float('-inf') if player == 2 else float('inf')
@@ -91,9 +104,9 @@ def Expected_Value(current_board, max_depth, player, col, node):
                             node_type="max" if player == 2 else "min")
     node.add_child(center_child)
     if player == 2:
-        child_val, _ = Min_Value(new_board, max_depth - 1, center_child)
+        child_val, _ = Min_Value(new_board, max_depth - 1, center_child, nodes_expanded)
     else:
-        child_val, _ = Max_Value(new_board, max_depth - 1, center_child)
+        child_val, _ = Max_Value(new_board, max_depth - 1, center_child, nodes_expanded)
     value += prob_center * child_val
     children_values.append(child_val)
 
@@ -106,9 +119,9 @@ def Expected_Value(current_board, max_depth, player, col, node):
                               node_type="max" if player == 2 else "min")
         node.add_child(left_child)
         if player == 2:
-            child_val, _ = Min_Value(new_board_left, max_depth - 1, left_child)
+            child_val, _ = Min_Value(new_board_left, max_depth - 1, left_child, nodes_expanded)
         else:
-            child_val, _ = Max_Value(new_board_left, max_depth - 1, left_child)
+            child_val, _ = Max_Value(new_board_left, max_depth - 1, left_child, nodes_expanded)
         value += prob_left * child_val
         children_values.append(child_val)
 
@@ -121,9 +134,9 @@ def Expected_Value(current_board, max_depth, player, col, node):
                                node_type="max" if player == 2 else "min")
         node.add_child(right_child)
         if player == 2:
-            child_val, _ = Min_Value(new_board_right, max_depth - 1, right_child)
+            child_val, _ = Min_Value(new_board_right, max_depth - 1, right_child, nodes_expanded)
         else:
-            child_val, _ = Max_Value(new_board_right, max_depth - 1, right_child)
+            child_val, _ = Max_Value(new_board_right, max_depth - 1, right_child, nodes_expanded)
         value += prob_right * child_val
         children_values.append(child_val)
 
